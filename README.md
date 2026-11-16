@@ -53,7 +53,7 @@ web/              流式聊天前端
 Windows 上如果 `pip install faiss-cpu` 找不到 wheel，改用 conda 安装 `faiss-cpu`，或者在 WSL2 / Linux 容器里跑。代码本身是跨平台的，卡住的通常只是 FAISS 的二进制包。
 
 ```powershell
-git clone <your-repo-url> gradcoffee-agent-rag
+git clone https://github.com/gradcoffee/gradcoffee-agent-rag.git gradcoffee-agent-rag
 cd gradcoffee-agent-rag
 
 python -m venv .venv
@@ -104,7 +104,7 @@ uvicorn rag_agent.api:app --reload --port 8000
 
 `search_docs` 在 `tools.py` 里，检索器懒加载。索引不存在时，工具返回“知识库检索失败：……”，而不是让服务启动就崩。模型看到的是可读错误，可以回复“先建索引”，不会直接 500。
 
-切块用 `MarkdownHeaderTextSplitter` 保留章节路径，再用 `RecursiveCharacterTextSplitter` 按 500 字、150 字重叠细分。chunk 用整数 `id` 写进 FAISS metadata，检索结果直接按 id 回查，避免用文本反查。
+切块用 `MarkdownHeaderTextSplitter` 保留章节路径，再用 `RecursiveCharacterTextSplitter` 按 500 字、150 字重叠细分。chunk 用整数 `id` 写进 FAISS metadata，检索结果直接按 id 回查，避免用文本反查。第一篇为了先跑通，示例用 500/50；仓库最终版配合混合检索用 500/150，重建索引时按当前配置生效。
 
 ### 2. 长期记忆
 
