@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GradCoffee · Agent RAG</title>
+  <style>
+    :root {
+      --bg: #0f100d;
+      --panel: #171913;
+      --panel-2: #1e2118;
+      --text: #ece8dd;
+      --muted: #a7a394;
+      --line: #313528;
+      --accent: #d9a441;
+      --accent-2: #7fae6a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 500px at 15% -10%, #2a2d1f 0%, transparent 60%),
+        radial-gradient(700px 400px at 90% 10%, #262116 0%, transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 44px 22px 60px; }
+    .brand {
+      display: flex; align-items: center; gap: 10px;
+      color: var(--accent); font-size: 12px; letter-spacing: .22em;
+      text-transform: uppercase; margin-bottom: 26px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 0 4px #7fae6a22; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 48px); line-height: 1.12; letter-spacing: -.02em; }
+    h1 span { color: var(--accent); }
+    .sub { margin: 14px 0 30px; color: var(--muted); line-height: 1.8; max-width: 680px; }
+    .panel {
+      background: linear-gradient(180deg, #1a1d15, #141610);
+      border: 1px solid var(--line); border-radius: 18px; padding: 20px;
+      box-shadow: 0 24px 70px #00000055;
+    }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
+    input, textarea {
+      background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+      border-radius: 10px; padding: 11px 13px; font: inherit; outline: none;
+    }
+    input:focus, textarea:focus { border-color: #6e7552; }
+    input { width: 180px; }
+    textarea { width: 100%; min-height: 108px; resize: vertical; line-height: 1.7; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      border: 1px solid #6f5930; background: var(--accent); color: #171204;
+      border-radius: 10px; padding: 11px 18px; font-weight: 700; cursor: pointer;
+    }
+    button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+    button:disabled { opacity: .55; cursor: wait; }
+    .answer-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin: 26px 0 10px; color: var(--muted); font-size: 12px; letter-spacing: .08em;
+    }
+    #answer {
+      min-height: 190px; margin: 0; padding: 20px; border-radius: 14px;
+      background: #11130e; border: 1px solid var(--line);
+      white-space: pre-wrap; word-break: break-word; line-height: 1.8;
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      font-size: 14px; color: #e6e1d3;
+    }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .hint code { color: var(--accent-2); }
+    .badge {
+      display: inline-block; border: 1px solid #3c4432; color: var(--accent-2);
+      border-radius: 999px; padding: 3px 9px; font-size: 11px; margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="brand"><span class="dot"></span> GRADCOFFEE · AGENT RAG</div>
+    <h1>给 Agent 装上<br><span>知识库</span></h1>
+    <p class="sub">
+      混合检索召回，rerank 精排，回答带出处。这个页面走的是 <code>text/plain</code> 的 chunked 流，
+      不是 SSE；每读到一块就渲染一块。
+    </p>
+
+    <section class="panel">
+      <div class="row">
+        <label>用户 ID
+          <input id="userId" value="demo_user" autocomplete="off">
+        </label>
+        <label>会话 ID
+          <input id="threadId" value="default" autocomplete="off">
+        </label>
+      </div>
+
+      <label>问题
+        <textarea id="question" placeholder="例如：入职半年年假有几天？"></textarea>
+      </label>
+
+      <div class="actions">
+        <button id="send">流式提问</button>
+        <button id="structured" class="ghost">结构化回答</button>
+        <button id="clear" class="ghost">清空</button>
+      </div>
+      <p class="hint">
+        <span class="badge">RAG</span>
+        <span class="badge">RRF</span>
+        <span class="badge">Rerank</span>
+        示例问题：一线城市差旅住宿标准是多少？ / delete_user 工具怎么加权限？
+      </p>
+    </section>
+
+    <div class="answer-head">
+      <span>OUTPUT</span>
+      <span id="status">idle</span>
+    </div>
+    <pre id="answer">等待提问…</pre>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const answer = $("answer");
+    const status = $("status");
+    const send = $("send");
+    const structured = $("structured");
+    const clear = $("clear");
+
+    function setBusy(busy) {
+      send.disabled = busy;
+      structured.disabled = busy;
+      status.textContent = busy ? "streaming" : "idle";
+    }
+
+    function payload() {
+      return {
+        question: $("question").value.trim(),
+        user_id: $("userId").value.trim() || "demo_user",
+        thread_id: $("threadId").value.trim() || "default"
+      };
+    }
+
+    async function askStream() {
+      const body = payload();
+      if (!body.question) {
+        answer.textContent = "先写一个问题。";
+        return;
+      }
+      answer.textContent = "";
+      setBusy(true);
+
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let text = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // 关键：stream: true，避免多字节中文被截断。
+          text += decoder.decode(value, { stream: true });
+          answer.textContent = text;
+          answer.scrollTop = answer.scrollHeight;
+        }
+        // 收尾 flush，吐出解码器里残留的字节。
+        text += decoder.decode();
+        answer.textContent = text || "（没有内容）";
+      } catch (error) {
+        answer.textContent = `请求失败：${error.message}`;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function askStructured() {
+      const body = payload();
+      if (!body.question) {
+        answer.textContent = "先写一个问题。";
+        return;
+      }
+      setBusy(true);
+      try {
+        const response = await fetch("/api/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || `HTTP ${response.status}`);
+        }
+        answer.textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        answer.textContent = `请求失败：${error.message}`;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    send.addEventListener("click", askStream);
+    structured.addEventListener("click", askStructured);
+    clear.addEventListener("click", () => {
+      answer.textContent = "等待提问…";
+      $("question").value = "";
+      $("question").focus();
+    });
+    $("question").addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") askStream();
+    });
+  </script>
+</body>
+</html>

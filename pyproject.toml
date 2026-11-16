@@ -1,0 +1,19 @@
+[project]
+name = "gradcoffee-agent-rag"
+version = "0.1.0"
+description = "项目一《RAG 知识库助手》的可运行代码：混合检索、rerank、长期记忆、结构化输出、流式接口。"
+requires-python = ">=3.11,<3.13"
+authors = [{ name = "梯度下降的咖啡师" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "data", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
